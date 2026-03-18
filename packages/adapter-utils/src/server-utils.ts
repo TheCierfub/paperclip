@@ -114,6 +114,23 @@ export function buildPaperclipEnv(agent: { id: string; companyId: string }): Rec
     PAPERCLIP_AGENT_ID: agent.id,
     PAPERCLIP_COMPANY_ID: agent.companyId,
   };
+  const passthroughKeys = [
+    "PAPERCLIP_API_KEY",
+    "PAPERCLIP_RUN_ID",
+    "PAPERCLIP_WAKE_REASON",
+    "PAPERCLIP_WORKSPACE_SOURCE",
+    "PAPERCLIP_TASK_ID",
+    "PAPERCLIP_APPROVAL_ID",
+    "PAPERCLIP_WAKE_COMMENT_ID",
+    "PAPERCLIP_APPROVAL_STATUS",
+    "PAPERCLIP_LINKED_ISSUE_IDS",
+  ] as const;
+  for (const key of passthroughKeys) {
+    const value = process.env[key];
+    if (typeof value === "string" && value.length > 0) {
+      vars[key] = value;
+    }
+  }
   const runtimeHost = resolveHostForUrl(
     process.env.PAPERCLIP_LISTEN_HOST ?? process.env.HOST ?? "localhost",
   );
@@ -203,9 +220,34 @@ async function resolveSpawnTarget(
 }
 
 export function ensurePathInEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  if (typeof env.PATH === "string" && env.PATH.length > 0) return env;
-  if (typeof env.Path === "string" && env.Path.length > 0) return env;
-  return { ...env, PATH: defaultPathForPlatform() };
+  const next: NodeJS.ProcessEnv = { ...env };
+
+  // Prefer existing PATH/Path when present, otherwise fall back to a sane default.
+  let pathKey: "PATH" | "Path" | null = null;
+  if (typeof next.PATH === "string" && next.PATH.length > 0) {
+    pathKey = "PATH";
+  } else if (typeof next.Path === "string" && next.Path.length > 0) {
+    pathKey = "Path";
+  } else {
+    next.PATH = defaultPathForPlatform();
+    pathKey = "PATH";
+  }
+
+  // On Unix-like systems, many CLIs (including Cursor's `agent`) are installed into
+  // ~/.local/bin for non-interactive shells, which is often missing from PATH for
+  // long-lived server processes. Ensure it's present so local adapters can resolve.
+  if (process.platform !== "win32") {
+    const home = next.HOME ?? process.env.HOME;
+    if (home) {
+      const homeLocalBin = `${home}/.local/bin`;
+      const currentPath = next[pathKey] ?? "";
+      if (!currentPath.split(":").includes(homeLocalBin)) {
+        next[pathKey] = `${homeLocalBin}:${currentPath}`;
+      }
+    }
+  }
+
+  return next;
 }
 
 export async function ensureAbsoluteDirectory(

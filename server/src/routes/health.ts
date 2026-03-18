@@ -20,7 +20,7 @@ export function healthRoutes(
 ) {
   const router = Router();
 
-  router.get("/", async (_req, res) => {
+  const handler = async (_req: unknown, res: { json: (body: unknown) => void }) => {
     if (!db) {
       res.json({ status: "ok" });
       return;
@@ -65,7 +65,13 @@ export function healthRoutes(
         companyDeletionEnabled: opts.companyDeletionEnabled,
       },
     });
-  });
+  };
+
+  // Express mount semantics: when mounted at "/health", a GET "/health" produces
+  // an empty remaining path ("") and does not match `router.get("/")` under
+  // strict routing rules. Support both spellings.
+  router.get("", handler);
+  router.get("/", handler);
 
   return router;
 }
